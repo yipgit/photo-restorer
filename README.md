@@ -23,7 +23,17 @@
 
 AI 模型暂以 adapter/stub 接口落位，后续逐个接入真实模型权重。
 
-## 安装
+## 运行方式
+
+当前版本是开发期 scaffold，不需要 Docker，也还不是完整安装包形态。
+
+- 后端/CLI：Python 本地环境
+- 前端：Vite + React 本地开发服务
+- 桌面壳：预留 Tauri 方向，当前先用 Web UI scaffold
+
+开发时通常开两个终端：一个跑 FastAPI 后端，一个跑前端 Vite。
+
+## 后端安装
 
 ```bash
 cd photo-restorer
@@ -39,6 +49,49 @@ pip install -e '.[vision,api]'
 ```
 
 GPU 修复依赖后续按模型分包安装。
+
+## 启动后端 API
+
+```bash
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uvicorn photo_restorer.api.server:app --reload --host 127.0.0.1 --port 8787
+```
+
+后端默认地址：`http://127.0.0.1:8787`
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8787/health
+```
+
+## 启动前端 UI
+
+```bash
+cd apps/desktop
+npm install
+npm run dev
+```
+
+前端默认地址：`http://127.0.0.1:5173`
+
+构建前端静态文件：
+
+```bash
+npm run build
+```
+
+说明：当前 UI 是 React/Vite 原型页，下一步会接入后端 `/run`、项目队列、检测框编辑和图片前后对比。完整 Tauri 桌面打包还未接入。
+
+## 是否需要 Docker？
+
+暂时不需要。
+
+原因：
+
+- 当前 MVP 主要是本地文件处理、OpenCV 裁切、FastAPI、本地 UI；原生 Python + Node 更直接。
+- 后续 Windows + RTX 3070 跑 CUDA 模型时，Docker 会额外引入 NVIDIA Container Toolkit、磁盘挂载、模型缓存、GUI/文件选择等复杂度。
+- 如果未来要做服务化部署或远程 GPU API，再补 Dockerfile / docker-compose 更合适。
 
 ## CLI
 
