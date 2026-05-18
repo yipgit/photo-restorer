@@ -1,0 +1,6 @@
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #111827; color: #f9fafb; }
+main { max-width: 1080px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: 42px; margin: 0 0 8px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 32px; }
+.grid > div { background: #1f2937; border: 1px solid #374151; border-radius: 16px; padding: 20px; }
+.note { color: #93c5fd; margin-top: 28px; }

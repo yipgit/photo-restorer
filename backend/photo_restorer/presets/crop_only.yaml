@@ -1,0 +1,15 @@
+name: crop_only
+crop:
+  enabled: true
+  min_area_ratio: 0.01
+  keep_border_px: 0
+orientation:
+  auto_rotate: false
+repair:
+  defect_inpaint: {enabled: false}
+  global_restore: {enabled: false}
+  face_restore: {enabled: false}
+  super_resolution: {enabled: false}
+color:
+  white_balance: false
+  contrast: none

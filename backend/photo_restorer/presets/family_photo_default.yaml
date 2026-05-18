@@ -1,0 +1,28 @@
+name: family_photo_default
+crop:
+  enabled: true
+  min_area_ratio: 0.01
+  keep_border_px: 0
+orientation:
+  auto_rotate: true
+  min_confidence: 0.75
+repair:
+  defect_inpaint:
+    enabled: true
+    model: lama
+    strength: medium
+  global_restore:
+    enabled: true
+    model: diffbir
+    strength: medium
+  face_restore:
+    enabled: true
+    model: codeformer
+    fidelity: 0.7
+  super_resolution:
+    enabled: true
+    model: realesrgan
+    scale: 2
+color:
+  white_balance: true
+  contrast: medium

@@ -1,0 +1,26 @@
+name: conservative_archive
+crop:
+  enabled: true
+  min_area_ratio: 0.01
+  keep_border_px: 0
+orientation:
+  auto_rotate: true
+  min_confidence: 0.9
+repair:
+  defect_inpaint:
+    enabled: true
+    model: lama
+    strength: light
+  global_restore:
+    enabled: false
+  face_restore:
+    enabled: true
+    model: codeformer
+    fidelity: 0.9
+  super_resolution:
+    enabled: true
+    model: realesrgan
+    scale: 2
+color:
+  white_balance: true
+  contrast: light

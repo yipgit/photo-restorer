@@ -1,0 +1,28 @@
+name: aggressive_restore
+crop:
+  enabled: true
+  min_area_ratio: 0.01
+  keep_border_px: 0
+orientation:
+  auto_rotate: true
+  min_confidence: 0.7
+repair:
+  defect_inpaint:
+    enabled: true
+    model: lama
+    strength: high
+  global_restore:
+    enabled: true
+    model: diffbir
+    strength: high
+  face_restore:
+    enabled: true
+    model: codeformer
+    fidelity: 0.45
+  super_resolution:
+    enabled: true
+    model: realesrgan
+    scale: 4
+color:
+  white_balance: true
+  contrast: high
