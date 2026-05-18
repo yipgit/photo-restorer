@@ -24,6 +24,7 @@ def order_polygon(points):
 def detect_photo_regions(
     image_path: str | Path,
     min_area_ratio: float = 0.01,
+    max_area_ratio: float = 0.95,
     canny_low: int = 25,
     canny_high: int = 120,
     blur_kernel: int = 5,
@@ -55,11 +56,12 @@ def detect_photo_regions(
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     min_area = h * w * min_area_ratio
+    max_area = h * w * max_area_ratio
     candidates: list[PhotoRegion] = []
     seen_boxes: list[tuple[int, int, int, int]] = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < min_area:
+        if area < min_area or area > max_area:
             continue
         peri = cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, approx_epsilon_ratio * peri, True)
