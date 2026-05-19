@@ -12,6 +12,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
+        QComboBox,
         QDoubleSpinBox,
         QFileDialog,
         QGraphicsEllipseItem,
@@ -23,14 +24,17 @@ try:
         QHBoxLayout,
         QLabel,
         QListWidget,
+        QListWidgetItem,
         QMainWindow,
         QMessageBox,
         QPushButton,
+        QSlider,
         QSpinBox,
         QSplitter,
         QStatusBar,
         QVBoxLayout,
         QWidget,
+        QTabWidget,
         QGroupBox,
         QScrollArea,
         QSizePolicy,
@@ -40,11 +44,67 @@ except Exception as exc:  # pragma: no cover
 
 from photo_restorer.core.crop import crop_and_rectify
 from photo_restorer.core.detect import detect_photo_regions
-from photo_restorer.core.orientation import OrientationResult, apply_orientation
+from photo_restorer.core.orientation import OrientationResult, apply_orientation, detect_orientation
 from photo_restorer.core.pipeline_steps import DEFAULT_PIPELINE
 from photo_restorer.core.types import PhotoRegion
 
 POINT_RADIUS = 6
+PRESETS = [
+    ("family_photo_default", "家庭照片默认"),
+    ("conservative_archive", "档案保守"),
+    ("aggressive_restore", "翻新增强"),
+    ("ai_high_restore", "AI 高修复（接口预留）"),
+    ("crop_only", "只裁切整理"),
+]
+
+class BeforeAfterView(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.before = QPixmap()
+        self.after = QPixmap()
+        self.position = 50
+        self.setMinimumHeight(320)
+        self.setStyleSheet("background: #0f172a; border: 1px solid #64748b;")
+
+    def set_images(self, before_path: Path | None, after_path: Path | None):
+        self.before = QPixmap(str(before_path)) if before_path else QPixmap()
+        self.after = QPixmap(str(after_path)) if after_path else QPixmap()
+        self.update()
+
+    def set_position(self, value: int):
+        self.position = max(1, min(99, value))
+        self.update()
+
+    def paintEvent(self, event):  # noqa: N802 - Qt override
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#0f172a"))
+        if self.before.isNull() and self.after.isNull():
+            painter.setPen(QColor("#cbd5e1"))
+            painter.drawText(self.rect(), Qt.AlignCenter, "修复结果对比预览")
+            return
+        source = self.before if not self.before.isNull() else self.after
+        target = QRectF(self.rect()).adjusted(12, 12, -12, -12)
+        scaled = source.scaled(target.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x = target.x() + (target.width() - scaled.width()) / 2
+        y = target.y() + (target.height() - scaled.height()) / 2
+        image_rect = QRectF(x, y, scaled.width(), scaled.height())
+        if not self.after.isNull():
+            painter.drawPixmap(image_rect.toRect(), self.after)
+        if not self.before.isNull():
+            clip_width = image_rect.width() * self.position / 100
+            painter.save()
+            painter.setClipRect(QRectF(image_rect.x(), image_rect.y(), clip_width, image_rect.height()))
+            painter.drawPixmap(image_rect.toRect(), self.before)
+            painter.restore()
+        divider_x = image_rect.x() + image_rect.width() * self.position / 100
+        painter.setPen(QPen(QColor("#f8fafc"), 2))
+        painter.drawLine(int(divider_x), int(image_rect.y()), int(divider_x), int(image_rect.bottom()))
+        painter.setBrush(QColor("#2563eb"))
+        painter.setPen(QPen(QColor("#f8fafc"), 3))
+        painter.drawEllipse(QPointF(divider_x, image_rect.center().y()), 15, 15)
+        painter.setPen(QColor("#e2e8f0"))
+        painter.drawText(image_rect.adjusted(10, 10, -10, -10), Qt.AlignTop | Qt.AlignLeft, "修复前")
+        painter.drawText(image_rect.adjusted(10, 10, -10, -10), Qt.AlignTop | Qt.AlignRight, "修复后")
 
 class DraggablePoint(QGraphicsEllipseItem):
     def __init__(self, polygon_item: "EditablePolygonItem", index: int, point: QPointF):
@@ -159,8 +219,13 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         self.image_path: Path | None = None
         self.regions: list[PhotoRegion] = []
+        self.crop_outputs: list[dict] = []
+        self.restore_outputs: list[dict] = []
         self.canvas = ImageCanvas()
         self.region_list = QListWidget()
+        self.crop_list = QListWidget()
+        self.result_list = QListWidget()
+        self.compare_view = BeforeAfterView()
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self._build_ui()
@@ -172,12 +237,83 @@ class MainWindow(QMainWindow):
         self.menuBar().addAction(open_action)
 
     def _build_ui(self):
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._prepare_tab(), "1. 识别 / 裁剪 / 方向")
+        self.tabs.addTab(self._restore_tab(), "2. 选择修复效果")
+        self.tabs.addTab(self._compare_tab(), "3. 前后对比")
+        self.setCentralWidget(self.tabs)
+
+    def _prepare_tab(self):
         splitter = QSplitter()
         splitter.addWidget(self.canvas)
         splitter.addWidget(self._side_panel())
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        return splitter
+
+    def _restore_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        intro = QLabel("从第一个 tab 得到的多张照片中选择要修复的图片，并选择修复效果。")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("修复方案"))
+        self.preset_combo = QComboBox()
+        for value, label in PRESETS:
+            self.preset_combo.addItem(label, value)
+        preset_row.addWidget(self.preset_combo)
+        layout.addLayout(preset_row)
+
+        pipe_group = QGroupBox("Pipeline 步骤")
+        pipe_layout = QVBoxLayout(pipe_group)
+        self.step_checks: dict[str, QCheckBox] = {}
+        for step in DEFAULT_PIPELINE:
+            cb = QCheckBox(step.label)
+            cb.setChecked(step.enabled)
+            self.step_checks[step.key] = cb
+            pipe_layout.addWidget(cb)
+        self.manual_rotation = QSpinBox(); self.manual_rotation.setRange(-270, 270); self.manual_rotation.setSingleStep(90); self.manual_rotation.setValue(0)
+        rotate_row = QHBoxLayout(); rotate_row.addWidget(QLabel("手动旋转角度")); rotate_row.addWidget(self.manual_rotation); pipe_layout.addLayout(rotate_row)
+        layout.addWidget(pipe_group)
+
+        select_row = QHBoxLayout()
+        all_btn = QPushButton("全选")
+        all_btn.clicked.connect(lambda: self._set_all_crop_checks(True))
+        none_btn = QPushButton("清空")
+        none_btn.clicked.connect(lambda: self._set_all_crop_checks(False))
+        run_btn = QPushButton("修复选中照片")
+        run_btn.clicked.connect(self.run_selected_restores)
+        select_row.addWidget(all_btn); select_row.addWidget(none_btn); select_row.addStretch(1); select_row.addWidget(run_btn)
+        layout.addLayout(select_row)
+
+        self.crop_list.itemSelectionChanged.connect(self.preview_selected_crop)
+        layout.addWidget(self.crop_list, 1)
+        return page
+
+    def _compare_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        intro = QLabel("查看修复前/修复后效果；拖动滑杆移动中间竖轴。")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        splitter = QSplitter()
+        self.result_list.currentRowChanged.connect(self.show_compare_result)
+        splitter.addWidget(self.result_list)
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.addWidget(self.compare_view, 1)
+        self.compare_slider = QSlider(Qt.Horizontal)
+        self.compare_slider.setRange(5, 95)
+        self.compare_slider.setValue(50)
+        self.compare_slider.valueChanged.connect(self.compare_view.set_position)
+        right_layout.addWidget(self.compare_slider)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 4)
+        layout.addWidget(splitter, 1)
+        return page
 
     def _side_panel(self):
         panel = QWidget()
@@ -231,20 +367,12 @@ class MainWindow(QMainWindow):
         edit_layout.addWidget(self.crop_preview)
         layout.addWidget(edit_group)
 
-        pipe_group = QGroupBox("Pipeline 编排")
-        pipe_layout = QVBoxLayout(pipe_group)
-        self.step_checks: dict[str, QCheckBox] = {}
-        for step in DEFAULT_PIPELINE:
-            cb = QCheckBox(step.label)
-            cb.setChecked(step.enabled)
-            self.step_checks[step.key] = cb
-            pipe_layout.addWidget(cb)
-        self.manual_rotation = QSpinBox(); self.manual_rotation.setRange(-270, 270); self.manual_rotation.setSingleStep(90); self.manual_rotation.setValue(0)
-        rotate_row = QHBoxLayout(); rotate_row.addWidget(QLabel("手动旋转角度")); rotate_row.addWidget(self.manual_rotation); pipe_layout.addLayout(rotate_row)
-        run_btn = QPushButton("运行选中照片 Pipeline")
-        run_btn.clicked.connect(self.run_pipeline_placeholder)
-        pipe_layout.addWidget(run_btn)
-        layout.addWidget(pipe_group)
+        next_group = QGroupBox("进入修复")
+        next_layout = QVBoxLayout(next_group)
+        crop_all_btn = QPushButton("裁切全部照片并进入修复选择")
+        crop_all_btn.clicked.connect(self.crop_all_for_restore)
+        next_layout.addWidget(crop_all_btn)
+        layout.addWidget(next_group)
 
         layout.addStretch(1)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(panel)
@@ -257,7 +385,12 @@ class MainWindow(QMainWindow):
         self.image_path = Path(filename)
         self.canvas.load_image(self.image_path)
         self.regions = []
+        self.crop_outputs = []
+        self.restore_outputs = []
         self.region_list.clear()
+        self.crop_list.clear()
+        self.result_list.clear()
+        self.compare_view.set_images(None, None)
         self.status.showMessage(f"已打开：{self.image_path}")
 
     def detect_regions(self):
@@ -349,6 +482,118 @@ class MainWindow(QMainWindow):
         if not pixmap.isNull():
             self.crop_preview.setPixmap(pixmap.scaled(self.crop_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.status.showMessage(f"已裁切：{out}")
+
+    def crop_all_for_restore(self):
+        if not self.image_path:
+            QMessageBox.warning(self, "未打开图片", "请先打开一张扫描图。")
+            return
+        if not self.regions:
+            QMessageBox.warning(self, "没有识别结果", "请先识别照片，或手工新增四点框。")
+            return
+        out_dir = Path("outputs/pyside-crops")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        self.crop_outputs = []
+        try:
+            for region in self.regions:
+                crop_path = out_dir / f"{self.image_path.stem}_{region.id}_crop.png"
+                oriented_path = out_dir / f"{self.image_path.stem}_{region.id}_oriented.png"
+                crop_and_rectify(self.image_path, self.region_for_crop(region), crop_path)
+                orientation = detect_orientation(crop_path)
+                apply_orientation(crop_path, oriented_path, orientation)
+                self.crop_outputs.append({
+                    "region": region,
+                    "crop": crop_path,
+                    "oriented": oriented_path,
+                    "orientation": orientation,
+                })
+        except Exception as exc:
+            QMessageBox.critical(self, "裁切失败", str(exc))
+            return
+        self._refresh_crop_list()
+        self.tabs.setCurrentIndex(1)
+        self.status.showMessage(f"已裁切并校正 {len(self.crop_outputs)} 张照片，可选择修复效果。")
+
+    def _refresh_crop_list(self):
+        self.crop_list.clear()
+        for item in self.crop_outputs:
+            orientation = item["orientation"]
+            region = item["region"]
+            row = QListWidgetItem(f"{region.id}  方向={orientation.angle}°  conf={orientation.confidence:.2f}")
+            row.setFlags(row.flags() | Qt.ItemIsUserCheckable)
+            row.setCheckState(Qt.Checked)
+            self.crop_list.addItem(row)
+        if self.crop_outputs:
+            self.crop_list.setCurrentRow(0)
+
+    def _set_all_crop_checks(self, checked: bool):
+        for i in range(self.crop_list.count()):
+            self.crop_list.item(i).setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
+    def preview_selected_crop(self):
+        row = self.crop_list.currentRow()
+        if not (0 <= row < len(self.crop_outputs)):
+            return
+        pixmap = QPixmap(str(self.crop_outputs[row]["oriented"]))
+        if not pixmap.isNull():
+            self.crop_preview.setPixmap(pixmap.scaled(self.crop_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def selected_crop_indexes(self) -> list[int]:
+        return [i for i in range(self.crop_list.count()) if self.crop_list.item(i).checkState() == Qt.Checked]
+
+    def run_selected_restores(self):
+        indexes = self.selected_crop_indexes()
+        if not indexes:
+            QMessageBox.warning(self, "未选择照片", "请至少选择一张要修复的照片。")
+            return
+        if not self.image_path:
+            return
+        enabled = [key for key, cb in self.step_checks.items() if cb.isChecked()]
+        preset = self.preset_combo.currentData()
+        out_dir = Path("outputs/pyside-pipeline")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        self.restore_outputs = []
+        try:
+            for i in indexes:
+                item = self.crop_outputs[i]
+                region = item["region"]
+                before_path = item["oriented"]
+                final_path = out_dir / f"{self.image_path.stem}_{region.id}_final.png"
+                angle = int(self.manual_rotation.value()) if "orientation" in enabled else 0
+                if angle:
+                    apply_orientation(before_path, final_path, OrientationResult(angle=angle, confidence=1.0, evidence=["manual_rotation"]))
+                else:
+                    from shutil import copy2
+                    copy2(before_path, final_path)
+                metadata = {
+                    "source": str(self.image_path),
+                    "region": region.__dict__,
+                    "preset": preset,
+                    "enabled_steps": enabled,
+                    "before": str(before_path),
+                    "final": str(final_path),
+                }
+                (out_dir / f"{self.image_path.stem}_{region.id}.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+                self.restore_outputs.append({"region": region, "before": before_path, "after": final_path, "metadata": metadata})
+        except Exception as exc:
+            QMessageBox.critical(self, "修复失败", str(exc))
+            return
+        self._refresh_result_list()
+        self.tabs.setCurrentIndex(2)
+        self.status.showMessage(f"修复完成：{len(self.restore_outputs)} 张照片。当前 AI 修复步骤仍为占位，已支持前后对比。")
+
+    def _refresh_result_list(self):
+        self.result_list.clear()
+        for item in self.restore_outputs:
+            self.result_list.addItem(f"{item['region'].id}  {item['after']}")
+        if self.restore_outputs:
+            self.result_list.setCurrentRow(0)
+
+    def show_compare_result(self, row: int):
+        if not (0 <= row < len(self.restore_outputs)):
+            self.compare_view.set_images(None, None)
+            return
+        item = self.restore_outputs[row]
+        self.compare_view.set_images(item["before"], item["after"])
 
     def run_pipeline_placeholder(self):
         region = self.selected_region()
