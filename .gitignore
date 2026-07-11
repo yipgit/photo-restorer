@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
 outputs/**
 !outputs/.gitkeep
 projects/**
@@ -8,8 +9,8 @@ projects/**
 models-cache/
 .DS_Store
 .pytest_cache/
-*.egg-info/
 node_modules/
 dist/
 apps/desktop/node_modules/
 apps/desktop/dist/
+backend/photo_restorer/ui/outputs/

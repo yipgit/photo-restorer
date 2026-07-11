@@ -5,7 +5,8 @@
 - `backend/photo_restorer/core`: deterministic crop/orientation/pipeline logic
 - `backend/photo_restorer/models`: pluggable restoration model adapters
 - `backend/photo_restorer/api`: local FastAPI server for desktop UI
-- `apps/desktop`: Tauri-ready web UI scaffold
+- `apps/desktop`: React/Vite web UI scaffold
+- `apps/pyside_ui`: PySide6 desktop crop workbench
 - `backend/photo_restorer/presets`: shared YAML presets used by UI and CLI
 
 ## Model Adapter Contract

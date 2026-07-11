@@ -35,7 +35,7 @@ class Pipeline:
             for region in regions:
                 stem = f"{Path(img).stem}_{region.id}"
                 rectified = crop_and_rectify(img, region, dirs["rectified"] / f"{stem}.png", self.config.get("crop", {}).get("keep_border_px", 0))
-                orient = detect_orientation(rectified)
+                orient = detect_orientation(rectified, self.config.get("orientation", {}))
                 oriented = apply_orientation(rectified, dirs["oriented"] / f"{stem}.png", orient)
                 final = oriented
                 metadata = {"polygon": region.polygon, "region_confidence": region.confidence}
